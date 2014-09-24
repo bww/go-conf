@@ -2,5 +2,5 @@
 SOURCES=*.go
 
 all: $(SOURCES)
-	go get -d && go test
+	go get -d && go test -test.v
 

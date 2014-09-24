@@ -31,11 +31,12 @@
 package conf
 
 import (
-  "fmt"
-  "strings"
-  "net/url"
-  "net/http"
+  "errors"
 )
+
+var NoSuchKeyError  = errors.New("No such key")
+var ClientError     = errors.New("Client error")
+var ServiceError    = errors.New("Service error")
 
 /**
  * A configuration
@@ -47,68 +48,10 @@ type Config interface {
    */
   Get(key string) (interface{}, error)
   
+  /**
+   * Set a configuration value. The canonical form of the value is returned.
+   */
+  Set(key string, value interface{}) (interface{}, error)
+  
 }
-
-/**
- * An etcd backed configuration
- */
-type EtcdConfig struct {
-  endpoint    *url.URL
-  httpClient  *http.Client
-}
-
-/**
- * Create an etcd-backed configuration
- */
-func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
-  
-  u, err := url.Parse(endpoint)
-  if err != nil {
-    return err
-  }
-  
-  hc := &http.Client{}
-  
-  return &EtcdConfig{u, hc}, nil
-}
-
-/**
- * Obtain a configuration value. This method will block until it either succeeds or fails.
- */
-func (e *EtcdConfig) Get(key string) (interface{}, error) {
-  
-  rel, err := url.Parse(fmt.Sprintf("/%s", e.keyToPath(key)))
-  if err != nil {
-    return nil, err
-  }
-  
-  u := e.endpoint.ResolveReference(rel)
-  rsp, err := httpClient.Get(u.String())
-  if err != nil {
-    return nil, err
-  }
-  
-  
-  
-  return nil, nil
-}
-
-/**
- * Translate a key to a path. Keys are specified as "a.b.c" and paths are specified as "a/b/c"
- */
-func (e *EtcdConfig) keyToPath(key string) string {
-  var path string
-  
-  // do it the easy way for now
-  parts := strings.Split(key, ".")
-  
-  for i, p := range parts {
-    if i > 0 { path += "/" }
-    path += url.QueryEscape(p)
-  }
-  
-  return path
-}
-
-
 

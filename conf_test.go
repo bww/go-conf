@@ -31,9 +31,32 @@
 package conf
 
 import (
+  "testing"
 )
 
 func TestConf(t *testing.T) {
+  
+  e, err := NewEtcdConfig("http://localhost:4001/")
+  if err != nil {
+    t.Errorf("Could not fetch: %v", err)
+    return
+  }
+  
+  key := "a.b.c"
+  
+  v, err := e.Set(key, "The value")
+  if err != nil {
+    t.Errorf("Could not set: %v", err)
+  }else{
+    t.Logf("%v -> %v", key, v)
+  }
+  
+  v, err = e.Get(key)
+  if err != nil {
+    t.Errorf("Could not fetch: %v", err)
+  }else{
+    t.Logf("%v -> %v", key, v)
+  }
   
 }
 
