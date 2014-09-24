@@ -32,6 +32,7 @@ package conf
 
 import (
   "fmt"
+  "sync"
   "strings"
   "net/url"
   "net/http"
@@ -61,11 +62,55 @@ type etcdResponse struct {
 }
 
 /**
+ * Cache
+ */
+type etcdCache struct {
+  sync.RWMutex
+  props       map[string]*etcdResponse
+}
+
+/**
+ * Create a cache
+ */
+func newEtcdCache() *etcdCache {
+  return &etcdCache{props: make(map[string]*etcdResponse)}
+}
+
+/**
+ * Obtain a response from the cache
+ */
+func (c *etcdCache) Get(key string) (*etcdResponse, bool) {
+  c.RLock()
+  defer c.RUnlock()
+  r, ok := c.props[key]
+  return r, ok
+}
+
+/**
+ * Set a response from the cache
+ */
+func (c *etcdCache) Set(key string, rsp *etcdResponse) {
+  c.Lock()
+  defer c.Unlock()
+  c.props[key] = rsp
+}
+
+/**
+ * Delete a response from the cache
+ */
+func (c *etcdCache) Delete(key string) {
+  c.Lock()
+  defer c.Unlock()
+  delete(c.props, key)
+}
+
+/**
  * An etcd backed configuration
  */
 type EtcdConfig struct {
   endpoint    *url.URL
   httpClient  *http.Client
+  cache       *etcdCache
 }
 
 /**
@@ -78,9 +123,10 @@ func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
     return nil, err
   }
   
-  hc := &http.Client{}
+  client  := &http.Client{}
+  cache   := newEtcdCache()
   
-  return &EtcdConfig{u, hc}, nil
+  return &EtcdConfig{u, client, cache}, nil
 }
 
 /**
@@ -207,7 +253,66 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   
   return etc.Node.Value, nil
 }
+
+/**
+ * Delete a configuration node
+ */
+func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
   
+  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", e.keyToPath(key)))
+  if err != nil {
+    return nil, err
+  }
+  
+  abs := e.endpoint.ResolveReference(rel)
+  req, err := http.NewRequest("DELETE", abs.String(), nil)
+  if err != nil {
+    return nil, err
+  }
+  
+  rsp, err := e.httpClient.Do(req)
+  if err != nil {
+    return nil, err
+  }
+  
+  switch rsp.StatusCode {
+    case http.StatusOK:
+      // ok
+    case http.StatusNotFound:
+      return nil, NoSuchKeyError
+    case http.StatusBadRequest:
+      return nil, ClientError
+    default:
+      return nil, ServiceError
+  }
+  
+  defer rsp.Body.Close()
+  data, err := ioutil.ReadAll(rsp.Body)
+  if err != nil {
+    return nil, err
+  }
+  
+  etc := &etcdResponse{}
+  if err := json.Unmarshal(data, etc); err != nil {
+    return nil, err
+  }
+  
+  return etc, nil
+}
+
+/**
+ * Delete a configuration key/value. This method will block until it either succeeds or fails.
+ */
+func (e *EtcdConfig) Delete(key string) error {
+  _, err := e.delete(key)
+  if err != nil {
+    return err
+  }else{
+    return nil
+  }
+}
+  
+
 /**
  * Translate a key to a path. Keys are specified as "a.b.c" and paths are specified as "a/b/c"
  */

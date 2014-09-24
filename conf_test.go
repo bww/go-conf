@@ -58,5 +58,19 @@ func TestConf(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
+  err = e.Delete(key)
+  if err != nil {
+    t.Errorf("Could not delete: %v", err)
+  }else{
+    t.Logf("%v -> (deleted)", key)
+  }
+  
+  v, err = e.Get(key)
+  if err != NoSuchKeyError {
+    t.Errorf("Should not exist: %v: %v", key, err)
+  }else{
+    t.Logf("%v -> %v", key, v)
+  }
+  
 }
 

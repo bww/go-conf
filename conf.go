@@ -44,7 +44,7 @@ var ServiceError    = errors.New("Service error")
 type Config interface {
   
   /**
-   * Obtain a configuration value
+   * Obtain a configuration value.
    */
   Get(key string) (interface{}, error)
   
@@ -52,6 +52,11 @@ type Config interface {
    * Set a configuration value. The canonical form of the value is returned.
    */
   Set(key string, value interface{}) (interface{}, error)
+  
+  /**
+   * Delete a configuration key/value.
+   */
+  Delete(key string) error
   
 }
 
