@@ -32,6 +32,7 @@ package conf
 
 import (
   "fmt"
+  "log"
   "sync"
   "strings"
   "net/url"
@@ -41,6 +42,8 @@ import (
 )
 
 const CONTENT_TYPE_FORM_ENCODED = "application/x-www-form-urlencoded"
+
+var httpClient = &http.Client{}
 
 /**
  * An etcd node
@@ -61,19 +64,145 @@ type etcdResponse struct {
   Previous    *etcdNode         `json:"prevNode"`
 }
 
+type etcdObserver func(string, interface{})
+
+/**
+ * Cache
+ */
+type etcdCacheEntry struct {
+  sync.RWMutex
+  key         string
+  response    *etcdResponse
+  watching    bool
+  observers   []etcdObserver
+}
+
+/**
+ * Create a cache entry
+ */
+func newEtcdCacheEntry(key string, rsp *etcdResponse) *etcdCacheEntry {
+  return &etcdCacheEntry{key: key, response:rsp, observers: make([]etcdObserver, 0)}
+}
+
+/**
+ * Obtain the response
+ */
+func (e *etcdCacheEntry) Response() *etcdResponse {
+  e.RLock()
+  defer e.RUnlock()
+  return e.response
+}
+
+/**
+ * Set the response
+ */
+func (e *etcdCacheEntry) SetResponse(rsp *etcdResponse) {
+  e.Lock()
+  defer e.Unlock()
+  e.response = rsp
+}
+
+/**
+ * Add an observer for this entry and begin watching if we aren't already
+ */
+func (e *etcdCacheEntry) AddObserver(c *EtcdConfig, observer etcdObserver) {
+  e.Lock()
+  defer e.Unlock()
+  e.observers = append(e.observers, observer)
+  if !e.watching {
+    e.watching = true
+    go e.watch(c)
+  }
+}
+
+/**
+ * Remove all observers for this entry
+ */
+func (e *etcdCacheEntry) RemoveAllObservers() {
+  e.Lock()
+  defer e.Unlock()
+  e.observers = make([]etcdObserver, 0)
+}
+
+/**
+ * Are we watching this entry
+ */
+func (e *etcdCacheEntry) IsWatching() bool {
+  e.RLock()
+  defer e.RUnlock()
+  return e.watching
+}
+
+/**
+ * Start watching this entry for updates if we aren't already
+ */
+func (e *etcdCacheEntry) Watch(c *EtcdConfig) {
+  e.Lock()
+  defer e.Unlock()
+  if !e.watching {
+    e.watching = true
+    go e.watch(c)
+  }
+}
+
+/**
+ * Watch a property
+ */
+func (e *etcdCacheEntry) watch(c *EtcdConfig) {
+  for {
+    var err error
+    errcount := 0
+    
+    e.RLock()
+    key := e.key
+    rsp := e.response
+    e.RUnlock()
+    
+    rsp, err = c.get(key, true, rsp)
+    if err != nil {
+      log.Printf("[%s] could not watch: %v", key, err)
+      errcount++
+      continue
+    }
+    
+    log.Printf("[%s] GOT: %+v", key, rsp.Node)
+    
+    e.Lock()
+    
+    log.Printf("[%s] updated: %v", key, rsp.Node.Value)
+    e.response = rsp
+    
+    var observers []etcdObserver
+    if c := len(e.observers); c > 0 {
+      observers = make([]etcdObserver, c)
+      copy(observers, e.observers)
+    }
+    
+    e.Unlock()
+    
+    if observers != nil {
+      for _, o := range observers {
+        o(key, rsp.Node.Value)
+      }
+    }
+    
+  }
+}
+
 /**
  * Cache
  */
 type etcdCache struct {
   sync.RWMutex
-  props       map[string]*etcdResponse
+  config      *EtcdConfig
+  props       map[string]*etcdCacheEntry
 }
 
 /**
  * Create a cache
  */
-func newEtcdCache() *etcdCache {
-  return &etcdCache{props: make(map[string]*etcdResponse)}
+func newEtcdCache(config *EtcdConfig) *etcdCache {
+  return &etcdCache{config: config, props: make(map[string]*etcdCacheEntry)}
 }
 
 /**
@@ -82,8 +211,12 @@ func newEtcdCache() *etcdCache {
 func (c *etcdCache) Get(key string) (*etcdResponse, bool) {
   c.RLock()
   defer c.RUnlock()
-  r, ok := c.props[key]
-  return r, ok
+  e, ok := c.props[key]
+  if ok {
+    return e.Response(), true
+  }else{
+    return nil, false
+  }
 }
 
 /**
@@ -92,7 +225,38 @@ func (c *etcdCache) Get(key string) (*etcdResponse, bool) {
 func (c *etcdCache) Set(key string, rsp *etcdResponse) {
   c.Lock()
   defer c.Unlock()
-  c.props[key] = rsp
+  c.props[key] = newEtcdCacheEntry(key, rsp)
+}
+
+/**
+ * Set and start watching a key
+ */
+func (c *etcdCache) SetAndWatch(key string, rsp *etcdResponse) {
+  c.Lock()
+  defer c.Unlock()
+  e, ok := c.props[key]
+  if ok {
+    e.SetResponse(rsp)
+  }else{
+    e = newEtcdCacheEntry(key, rsp)
+    c.props[key] = e
+  }
+  e.Watch(c.config)
+  
+}
+
+/**
+ * Add an observer and begin watching if necessary
+ */
+func (c *etcdCache) AddObserver(key string, observer etcdObserver) {
+  c.Lock()
+  defer c.Unlock()
+  e, ok := c.props[key]
+  if !ok {
+    e := newEtcdCacheEntry(key, nil)
+    c.props[key] = e
+  }
+  e.AddObserver(c.config, observer)
 }
 
 /**
@@ -109,7 +273,6 @@ func (c *etcdCache) Delete(key string) {
  */
 type EtcdConfig struct {
   endpoint    *url.URL
-  httpClient  *http.Client
   cache       *etcdCache
 }
 
@@ -123,24 +286,36 @@ func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
     return nil, err
   }
   
-  client  := &http.Client{}
-  cache   := newEtcdCache()
+  etcd := &EtcdConfig{}
+  etcd.endpoint = u
+  etcd.cache = newEtcdCache(etcd)
   
-  return &EtcdConfig{u, client, cache}, nil
+  return etcd, nil
 }
 
 /**
  * Obtain a configuration node
  */
-func (e *EtcdConfig) get(key string) (*etcdResponse, error) {
+func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdResponse, error) {
+  var u string
   
-  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", e.keyToPath(key)))
+  path := keyToEtcdPath(key)
+  if !wait {
+    u = fmt.Sprintf("/v2/keys/%s", path)
+  }else if prev != nil {
+    u = fmt.Sprintf("/v2/keys/%s?wait=true&waitIndex=%d", path, prev.Node.Modified + 1)
+  }else{
+    u = fmt.Sprintf("/v2/keys/%s?wait=true", path)
+  }
+  
+  rel, err := url.Parse(u)
   if err != nil {
     return nil, err
   }
   
   abs := e.endpoint.ResolveReference(rel)
-  rsp, err := e.httpClient.Get(abs.String())
+  log.Printf("[%s] GET %s", key, abs.String())
+  rsp, err := httpClient.Get(abs.String())
   if err != nil {
     return nil, err
   }
@@ -175,14 +350,29 @@ func (e *EtcdConfig) get(key string) (*etcdResponse, error) {
  */
 func (e *EtcdConfig) Get(key string) (interface{}, error) {
   
-  etc, err := e.get(key)
-  if err != nil {
-    return nil, err
-  }else if etc.Node == nil {
-    return nil, NoSuchKeyError
+  rsp, ok := e.cache.Get(key)
+  if !ok || rsp == nil {
+    var err error
+    
+    rsp, err = e.get(key, false, nil)
+    if err != nil {
+      return nil, err
+    }else if rsp.Node == nil {
+      return nil, NoSuchKeyError
+    }
+    
+    e.cache.SetAndWatch(key, rsp)
+    
   }
   
-  return etc.Node.Value, nil
+  return rsp.Node.Value, nil
+}
+
+/**
+ * Watch a configuration value for changes.
+ */
+func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
+  e.cache.AddObserver(key, observer)
 }
 
 /**
@@ -190,7 +380,7 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
  */
 func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
   
-  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", e.keyToPath(key)))
+  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
     return nil, err
   }
@@ -211,7 +401,8 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
   
   req.Header.Add("Content-Type", CONTENT_TYPE_FORM_ENCODED)
   
-  rsp, err := e.httpClient.Do(req)
+  log.Printf("[%s] PUT %s", key, abs.String())
+  rsp, err := httpClient.Do(req)
   if err != nil {
     return nil, err
   }
@@ -244,14 +435,15 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
  */
 func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   
-  etc, err := e.set(key, value)
+  rsp, err := e.set(key, value)
   if err != nil {
     return nil, err
-  }else if etc.Node == nil {
+  }else if rsp.Node == nil {
     return nil, NoSuchKeyError
   }
   
-  return etc.Node.Value, nil
+  e.cache.Set(key, rsp)
+  return rsp.Node.Value, nil
 }
 
 /**
@@ -259,7 +451,7 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
  */
 func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
   
-  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", e.keyToPath(key)))
+  rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
     return nil, err
   }
@@ -270,7 +462,8 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
     return nil, err
   }
   
-  rsp, err := e.httpClient.Do(req)
+  log.Printf("[%s] DELETE %s", key, abs.String())
+  rsp, err := httpClient.Do(req)
   if err != nil {
     return nil, err
   }
@@ -304,19 +497,20 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
  * Delete a configuration key/value. This method will block until it either succeeds or fails.
  */
 func (e *EtcdConfig) Delete(key string) error {
-  _, err := e.delete(key)
+  
+  rsp, err := e.delete(key)
   if err != nil {
     return err
-  }else{
-    return nil
   }
-}
   
+  e.cache.Set(key, rsp)
+  return nil
+}
 
 /**
  * Translate a key to a path. Keys are specified as "a.b.c" and paths are specified as "a/b/c"
  */
-func (e *EtcdConfig) keyToPath(key string) string {
+func keyToEtcdPath(key string) string {
   var path string
   
   // do it the easy way for now

@@ -72,5 +72,14 @@ func TestConf(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
+  w := make(chan struct{})
+  
+  e.Watch(key, func(key string, val interface{}) {
+    t.Logf("Value changed: %v: %v", key, val)
+    w <- struct{}{}
+  })
+  
+  <- w
+  
 }
 
