@@ -31,6 +31,7 @@
 package conf
 
 import (
+  "io"
   "fmt"
   "log"
   "sync"
@@ -75,6 +76,7 @@ type etcdCacheEntry struct {
   response    *etcdResponse
   watching    bool
   observers   []etcdObserver
+  finalize    chan struct{}
 }
 
 /**
@@ -109,10 +111,7 @@ func (e *etcdCacheEntry) AddObserver(c *EtcdConfig, observer etcdObserver) {
   e.Lock()
   defer e.Unlock()
   e.observers = append(e.observers, observer)
-  if !e.watching {
-    e.watching = true
-    go e.watch(c)
-  }
+  e.startWatching(c)
 }
 
 /**
@@ -139,9 +138,32 @@ func (e *etcdCacheEntry) IsWatching() bool {
 func (e *etcdCacheEntry) Watch(c *EtcdConfig) {
   e.Lock()
   defer e.Unlock()
+  e.startWatching(c)
+}
+
+/**
+ * Start watching this entry for updates if we aren't already
+ */
+func (e *etcdCacheEntry) startWatching(c *EtcdConfig) {
+  // no locking; this must only be called by another method that handles synchronization
   if !e.watching {
+    if e.finalize == nil {
+      e.finalize = make(chan struct{})
+    }
     e.watching = true
     go e.watch(c)
+  }
+}
+
+/**
+ * Stop watching this entry for updates
+ */
+func (e *etcdCacheEntry) Cancel(c *EtcdConfig) {
+  e.Lock()
+  defer e.Unlock()
+  if e.watching {
+    e.finalize <- struct{}{}
+    e.watching = false
   }
 }
 
@@ -159,18 +181,19 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     e.RUnlock()
     
     rsp, err = c.get(key, true, rsp)
-    if err != nil {
+    if err == io.EOF || err == io.ErrUnexpectedEOF {
+      continue
+    }else if err != nil {
       log.Printf("[%s] could not watch: %v", key, err)
       errcount++
       continue
     }
     
-    log.Printf("[%s] GOT: %+v", key, rsp.Node)
     
+    log.Printf("[%s] update... %v", key, rsp.Node.Value)
     e.Lock()
-    
-    log.Printf("[%s] updated: %v", key, rsp.Node.Value)
     e.response = rsp
+    log.Printf("[%s] updated:  %v", key, rsp.Node.Value)
     
     var observers []etcdObserver
     if c := len(e.observers); c > 0 {
@@ -182,6 +205,7 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     
     if observers != nil {
       for _, o := range observers {
+        log.Printf("[%s] notify %v", key, o)
         o(key, rsp.Node.Value)
       }
     }
@@ -220,12 +244,40 @@ func (c *etcdCache) Get(key string) (*etcdResponse, bool) {
 }
 
 /**
+ * Get or create a cache entry. Returns (entry, created or not); (no sync)
+ */
+func (c *etcdCache) getOrCreate(key string) (*etcdCacheEntry, bool) {
+  e, ok := c.props[key]
+  if ok {
+    return e, false
+  }else{
+    e = newEtcdCacheEntry(key, nil)
+    c.props[key] = e
+    return e, true
+  }
+}
+
+/**
  * Set a response from the cache
  */
 func (c *etcdCache) Set(key string, rsp *etcdResponse) {
   c.Lock()
   defer c.Unlock()
-  c.props[key] = newEtcdCacheEntry(key, rsp)
+  c.set(key, rsp)
+}
+
+/**
+ * Set a response from the cache (no sync)
+ */
+func (c *etcdCache) set(key string, rsp *etcdResponse) *etcdCacheEntry {
+  e, ok := c.props[key]
+  if ok {
+    e.SetResponse(rsp)
+  }else{
+    e = newEtcdCacheEntry(key, rsp)
+    c.props[key] = e
+  }
+  return e
 }
 
 /**
@@ -234,15 +286,8 @@ func (c *etcdCache) Set(key string, rsp *etcdResponse) {
 func (c *etcdCache) SetAndWatch(key string, rsp *etcdResponse) {
   c.Lock()
   defer c.Unlock()
-  e, ok := c.props[key]
-  if ok {
-    e.SetResponse(rsp)
-  }else{
-    e = newEtcdCacheEntry(key, rsp)
-    c.props[key] = e
-  }
+  e := c.set(key, rsp)
   e.Watch(c.config)
-  
 }
 
 /**
@@ -251,11 +296,7 @@ func (c *etcdCache) SetAndWatch(key string, rsp *etcdResponse) {
 func (c *etcdCache) AddObserver(key string, observer etcdObserver) {
   c.Lock()
   defer c.Unlock()
-  e, ok := c.props[key]
-  if !ok {
-    e := newEtcdCacheEntry(key, nil)
-    c.props[key] = e
-  }
+  e, _ := c.getOrCreate(key)
   e.AddObserver(c.config, observer)
 }
 
@@ -442,7 +483,7 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
     return nil, NoSuchKeyError
   }
   
-  e.cache.Set(key, rsp)
+  e.cache.SetAndWatch(key, rsp)
   return rsp.Node.Value, nil
 }
 
