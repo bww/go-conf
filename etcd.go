@@ -156,18 +156,6 @@ func (e *etcdCacheEntry) startWatching(c *EtcdConfig) {
 }
 
 /**
- * Stop watching this entry for updates
- */
-func (e *etcdCacheEntry) Cancel(c *EtcdConfig) {
-  e.Lock()
-  defer e.Unlock()
-  if e.watching {
-    e.finalize <- struct{}{}
-    e.watching = false
-  }
-}
-
-/**
  * Watch a property
  */
 func (e *etcdCacheEntry) watch(c *EtcdConfig) {
@@ -189,11 +177,8 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
       continue
     }
     
-    
-    log.Printf("[%s] update... %v", key, rsp.Node.Value)
     e.Lock()
     e.response = rsp
-    log.Printf("[%s] updated:  %v", key, rsp.Node.Value)
     
     var observers []etcdObserver
     if c := len(e.observers); c > 0 {
@@ -205,11 +190,22 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     
     if observers != nil {
       for _, o := range observers {
-        log.Printf("[%s] notify %v", key, o)
-        o(key, rsp.Node.Value)
+        go o(key, rsp.Node.Value)
       }
     }
     
+  }
+}
+
+/**
+ * Stop watching this entry for updates
+ */
+func (e *etcdCacheEntry) Cancel() {
+  e.Lock()
+  defer e.Unlock()
+  if e.watching {
+    e.finalize <- struct{}{}
+    e.watching = false
   }
 }
 
@@ -394,18 +390,15 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
   rsp, ok := e.cache.Get(key)
   if !ok || rsp == nil {
     var err error
-    
     rsp, err = e.get(key, false, nil)
     if err != nil {
       return nil, err
     }else if rsp.Node == nil {
       return nil, NoSuchKeyError
     }
-    
-    e.cache.SetAndWatch(key, rsp)
-    
   }
   
+  e.cache.SetAndWatch(key, rsp)
   return rsp.Node.Value, nil
 }
 

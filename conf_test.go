@@ -47,15 +47,13 @@ func TestConf(t *testing.T) {
   
   w1 := make(chan struct{})
   
-  log.Printf("Watching...")
   e.Watch(key, func(key string, val interface{}) {
-    t.Logf("[AAA] Changed: %v: %v", key, val)
+    log.Printf("[AAA] Changed: %v: %v", key, val)
     w1 <- struct{}{}
   })
   
   <- w1
   
-  log.Printf("Setting...")
   v, err := e.Set(key, "The value (set)")
   if err != nil {
     t.Errorf("Could not set: %v", err)
@@ -63,7 +61,6 @@ func TestConf(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
-  log.Printf("Getting...")
   v, err = e.Get(key)
   if err != nil {
     t.Errorf("Could not fetch: %v", err)
@@ -71,7 +68,6 @@ func TestConf(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
-  log.Printf("Deleting...")
   err = e.Delete(key)
   if err != nil {
     t.Errorf("Could not delete: %v", err)
@@ -79,7 +75,6 @@ func TestConf(t *testing.T) {
     t.Logf("%v -> (deleted)", key)
   }
   
-  log.Printf("Getting...")
   v, err = e.Get(key)
   if err != nil && err != NoSuchKeyError {
     t.Errorf("Could not get: %v: %v", key, err)
@@ -89,9 +84,8 @@ func TestConf(t *testing.T) {
   
   w2 := make(chan struct{})
   
-  log.Printf("Watching...")
   e.Watch(key, func(key string, val interface{}) {
-    t.Logf("[BBB] Changed: %v: %v", key, val)
+    log.Printf("[BBB] Changed: %v: %v", key, val)
     w2 <- struct{}{}
   })
   
