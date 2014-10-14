@@ -34,6 +34,7 @@ import (
   "io"
   "fmt"
   "log"
+  "time"
   "sync"
   "strings"
   "net/url"
@@ -159,9 +160,11 @@ func (e *etcdCacheEntry) startWatching(c *EtcdConfig) {
  * Watch a property
  */
 func (e *etcdCacheEntry) watch(c *EtcdConfig) {
+  errcount := 0
+  backoff  := time.Second
+  maxboff  := time.Second * 15
   for {
     var err error
-    errcount := 0
     
     e.RLock()
     key := e.key
@@ -170,13 +173,18 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     
     rsp, err = c.get(key, true, rsp)
     if err == io.EOF || err == io.ErrUnexpectedEOF {
+      errcount = 0
       continue
     }else if err != nil {
-      log.Printf("[%s] could not watch: %v", key, err)
       errcount++
+      delay := backoff * time.Duration(errcount * errcount)
+      if delay > maxboff { delay = maxboff }
+      log.Printf("[%s] could not watch (backing off %v) %v", key, delay, err)
+      <- time.After(delay)
       continue
     }
     
+    errcount = 0
     e.Lock()
     e.response = rsp
     
@@ -353,6 +361,9 @@ func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdRespon
   abs := e.endpoint.ResolveReference(rel)
   log.Printf("[%s] GET %s", key, abs.String())
   rsp, err := httpClient.Get(abs.String())
+  if rsp != nil {
+    defer rsp.Body.Close() // always close Body
+  }
   if err != nil {
     return nil, err
   }
@@ -368,7 +379,6 @@ func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdRespon
       return nil, ServiceError
   }
   
-  defer rsp.Body.Close()
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
@@ -437,6 +447,9 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
   
   log.Printf("[%s] PUT %s", key, abs.String())
   rsp, err := httpClient.Do(req)
+  if rsp != nil {
+    defer rsp.Body.Close() // always close Body
+  }
   if err != nil {
     return nil, err
   }
@@ -450,7 +463,6 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
       return nil, ServiceError
   }
   
-  defer rsp.Body.Close()
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
@@ -498,6 +510,9 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
   
   log.Printf("[%s] DELETE %s", key, abs.String())
   rsp, err := httpClient.Do(req)
+  if rsp != nil {
+    defer rsp.Body.Close() // always close Body
+  }
   if err != nil {
     return nil, err
   }
@@ -513,7 +528,6 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
       return nil, ServiceError
   }
   
-  defer rsp.Body.Close()
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
