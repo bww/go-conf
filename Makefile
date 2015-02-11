@@ -1,6 +1,14 @@
 
-SOURCES=*.go
+export GOPATH := $(GOPATH):$(PWD)
 
-all: $(SOURCES)
-	go get -d && go test -test.v
+SRC=src/conf/*.go
+
+.PHONY: all deps test
+
+all: test
+
+deps:
+
+test:
+	go test conf -test.v
 
