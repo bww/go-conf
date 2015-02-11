@@ -369,8 +369,7 @@ func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdRespon
   }
   
   switch rsp.StatusCode {
-    case http.StatusOK:
-      // ok
+    case http.StatusOK: // ok
     case http.StatusNotFound:
       return nil, NoSuchKeyError
     case http.StatusBadRequest:
@@ -405,10 +404,11 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
       return nil, err
     }else if rsp.Node == nil {
       return nil, NoSuchKeyError
+    }else{
+      e.cache.SetAndWatch(key, rsp)
     }
   }
   
-  e.cache.SetAndWatch(key, rsp)
   return rsp.Node.Value, nil
 }
 
