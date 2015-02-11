@@ -67,18 +67,18 @@ func (s *ConfigSuite) Get(key string) (interface{}, error) {
  * Set a configuration value. The canonical form of the value is returned.
  */
 func (s *ConfigSuite) Set(key string, value interface{}) (interface{}, error) {
-  last := value
+  var first interface{}
   if s.suite != nil {
     for _, c := range s.suite {
       v, err := c.Set(key, value)
       if err != nil {
         return nil, err
-      }else{
-        last = v
+      }else if first == nil {
+        first = v
       }
     }
   }
-  return last, nil
+  return first, nil
 }
 
 /**
