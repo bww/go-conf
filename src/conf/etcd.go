@@ -54,7 +54,21 @@ type etcdNode struct {
   Created     uint64            `json:"createdIndex"`
   Modified    uint64            `json:"modifiedIndex"`
   Key         string            `json:"key"`
-  Value       string            `json:"value"`
+  Encoded     string            `json:"value"`
+  // value       interface{}
+}
+
+/**
+ * Obtain the decoded value
+ */
+func (n *etcdNode) Value() (interface{}, error) {
+  // if n.value == nil && n.Encoded != "" && n.Encoded != "null" {
+  //   if err := json.Unmarshal([]byte(n.Encoded), &n.value); err != nil {
+  //     return nil, err
+  //   }
+  // }
+  // return n.value, nil
+  return n.Encoded, nil
 }
 
 /**
@@ -179,7 +193,7 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
       errcount++
       delay := backoff * time.Duration(errcount * errcount)
       if delay > maxboff { delay = maxboff }
-      log.Printf("[%s] could not watch (backing off %v) %v", key, delay, err)
+      log.Printf("[%s] Could not watch (backing off %v) %v", key, delay, err)
       <- time.After(delay)
       continue
     }
@@ -196,9 +210,15 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     
     e.Unlock()
     
+    val, err := rsp.Node.Value()
+    if err != nil {
+      log.Printf("[%s] Could not decode value (nobody will be notified): %v", key, err)
+      continue
+    }
+    
     if observers != nil {
       for _, o := range observers {
-        go o(key, rsp.Node.Value)
+        go o(key, val)
       }
     }
     
@@ -409,7 +429,7 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
     }
   }
   
-  return rsp.Node.Value, nil
+  return rsp.Node.Value()
 }
 
 /**
@@ -489,7 +509,7 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   }
   
   e.cache.SetAndWatch(key, rsp)
-  return rsp.Node.Value, nil
+  return rsp.Node.Value()
 }
 
 /**
