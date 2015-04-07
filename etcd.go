@@ -187,7 +187,8 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     rsp := e.response
     e.RUnlock()
     
-    rsp, err = c.get(key, true, rsp)
+    recurse := rsp != nil && rsp.Node != nil && rsp.Node.Directory
+    rsp, err = c.get(key, true, recurse, rsp)
     if err == io.EOF || err == io.ErrUnexpectedEOF {
       errcount = 0
       continue
@@ -363,16 +364,16 @@ func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
 /**
  * Obtain a configuration node
  */
-func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdResponse, error) {
+func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*etcdResponse, error) {
   var u string
   
   path := keyToEtcdPath(key)
   if !wait {
     u = fmt.Sprintf("/v2/keys/%s", path)
   }else if prev != nil {
-    u = fmt.Sprintf("/v2/keys/%s?wait=true&waitIndex=%d", path, prev.Node.Modified + 1)
+    u = fmt.Sprintf("/v2/keys/%s?wait=true&waitIndex=%d&recursive=%v", path, prev.Node.Modified + 1, recurse)
   }else{
-    u = fmt.Sprintf("/v2/keys/%s?wait=true", path)
+    u = fmt.Sprintf("/v2/keys/%s?wait=true&recursive=%v", path, recurse)
   }
   
   rel, err := url.Parse(u)
@@ -421,7 +422,7 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
   
   rsp, ok := e.cache.Get(key)
   if !ok || rsp == nil {
-    rsp, err = e.get(key, false, nil)
+    rsp, err = e.get(key, false, false, nil)
     if err != nil {
       return nil, err
     }else if rsp.Node == nil {
@@ -456,7 +457,7 @@ func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
 /**
  * Set a configuration value
  */
-func (e *EtcdConfig) set(key, method string, value interface{}) (*etcdResponse, error) {
+func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcdResponse, error) {
   
   rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
@@ -464,11 +465,15 @@ func (e *EtcdConfig) set(key, method string, value interface{}) (*etcdResponse, 
   }
   
   vals := url.Values{}
-  switch v := value.(type) {
-    case string:
-      vals.Set("value", v)
-    default:
-      vals.Set("value", fmt.Sprintf("%v", v))
+  if dir {
+    vals.Set("dir", "true")
+  }else{
+    switch v := value.(type) {
+      case string:
+        vals.Set("value", v)
+      default:
+        vals.Set("value", fmt.Sprintf("%v", v))
+    }
   }
   
   abs := e.endpoint.ResolveReference(rel)
@@ -515,7 +520,7 @@ func (e *EtcdConfig) set(key, method string, value interface{}) (*etcdResponse, 
  */
 func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   
-  rsp, err := e.set(key, "PUT", value)
+  rsp, err := e.set(key, "PUT", false, value)
   if err != nil {
     return nil, err
   }else if rsp.Node == nil {
@@ -527,18 +532,33 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
 }
 
 /**
+ * Create an empty directory
+ */
+func (e *EtcdConfig) Mkdir(dir string) (error) {
+  
+  rsp, err := e.set(dir, "PUT", true, nil)
+  if err != nil {
+    return err
+  }else if rsp.Node == nil {
+    return NoSuchKeyError
+  }
+  
+  // not cached or watched...
+  return nil
+}
+
+/**
  * Add ordered values to an existing directory.
  */
 func (e *EtcdConfig) Add(dir string, value interface{}) (interface{}, error) {
   
-  rsp, err := e.set(dir, "POST", value)
+  rsp, err := e.set(dir, "POST", false, value)
   if err != nil {
     return nil, err
   }else if rsp.Node == nil {
     return nil, NoSuchKeyError
   }
   
-  // not cached or watched...
   return rsp.Node.Value()
 }
 

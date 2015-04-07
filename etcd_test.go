@@ -31,6 +31,7 @@
 package conf
 
 import (
+  "fmt"
   "log"
   "time"
   "testing"
@@ -137,5 +138,32 @@ func TestEtcdDirs(t *testing.T) {
   }else{
     t.Logf("%v -> %v", key, v)
   }
+  
+  err = e.Mkdir(key +".dir")
+  if err != nil {
+    t.Errorf("Could not add: %v", err)
+  }else{
+    t.Logf("%v -> dir", key)
+  }
+  
+  go func(){
+    <- time.After(time.Second)
+    k := fmt.Sprintf("%s.ZAM", key)
+    v, err := e.Set(k, "Does this cause a directory to update? FOO!")
+    if err != nil {
+      t.Errorf("Could not set: %v", err)
+    }else{
+      t.Logf("%v -> %v", k, v)
+    }
+  }()
+  
+  w1 := make(chan struct{})
+  
+  e.Watch(key, func(key string, val interface{}) {
+    log.Printf("[AAA] Changed: %v: %v", key, val)
+    w1 <- struct{}{}
+  })
+  
+  <- w1
   
 }
