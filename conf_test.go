@@ -1,6 +1,6 @@
 // 
 // Go Config
-// Copyright (c) 2014 Brian W. Wolter, All rights reserved.
+// Copyright (c) 2014, 2015 Brian W. Wolter, All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without modification,
 // are permitted provided that the following conditions are met:
@@ -31,65 +31,10 @@
 package conf
 
 import (
-  "log"
   "testing"
 )
 
 func TestConf(t *testing.T) {
-  
-  e, err := NewEtcdConfig("http://localhost:4001/")
-  if err != nil {
-    t.Errorf("Could not fetch: %v", err)
-    return
-  }
-  
-  key := "a.b.c"
-  
-  w1 := make(chan struct{})
-  
-  e.Watch(key, func(key string, val interface{}) {
-    log.Printf("[AAA] Changed: %v: %v", key, val)
-    w1 <- struct{}{}
-  })
-  
-  <- w1
-  
-  v, err := e.Set(key, "The value (set)")
-  if err != nil {
-    t.Errorf("Could not set: %v", err)
-  }else{
-    t.Logf("%v -> %v", key, v)
-  }
-  
-  v, err = e.Get(key)
-  if err != nil {
-    t.Errorf("Could not fetch: %v", err)
-  }else{
-    t.Logf("%v -> %v", key, v)
-  }
-  
-  err = e.Delete(key)
-  if err != nil {
-    t.Errorf("Could not delete: %v", err)
-  }else{
-    t.Logf("%v -> (deleted)", key)
-  }
-  
-  v, err = e.Get(key)
-  if err != nil && err != NoSuchKeyError {
-    t.Errorf("Could not get: %v: %v", key, err)
-  }else{
-    t.Logf("%v -> %v", key, v)
-  }
-  
-  w2 := make(chan struct{})
-  
-  e.Watch(key, func(key string, val interface{}) {
-    log.Printf("[BBB] Changed: %v: %v", key, val)
-    w2 <- struct{}{}
-  })
-  
-  <- w2
   
 }
 

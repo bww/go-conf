@@ -1,6 +1,6 @@
 // 
 // Go Config
-// Copyright (c) 2014 Brian W. Wolter, All rights reserved.
+// Copyright (c) 2014, 2015 Brian W. Wolter, All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without modification,
 // are permitted provided that the following conditions are met:
@@ -55,6 +55,8 @@ type etcdNode struct {
   Modified    uint64            `json:"modifiedIndex"`
   Key         string            `json:"key"`
   Encoded     string            `json:"value"`
+  Directory   bool              `json:"dir"`
+  Subnodes    []*etcdNode       `json:"nodes"`
   // value       interface{}
 }
 
@@ -415,10 +417,10 @@ func (e *EtcdConfig) get(key string, wait bool, prev *etcdResponse) (*etcdRespon
  * Obtain a configuration value. This method will block until it either succeeds or fails.
  */
 func (e *EtcdConfig) Get(key string) (interface{}, error) {
+  var err error
   
   rsp, ok := e.cache.Get(key)
   if !ok || rsp == nil {
-    var err error
     rsp, err = e.get(key, false, nil)
     if err != nil {
       return nil, err
@@ -429,7 +431,19 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
     }
   }
   
-  return rsp.Node.Value()
+  if rsp.Node.Directory && rsp.Node.Subnodes != nil {
+    values := make([]interface{}, len(rsp.Node.Subnodes))
+    for i, n := range rsp.Node.Subnodes {
+      values[i], err = n.Value()
+      if err != nil {
+        return nil, err
+      }
+    }
+    return values, nil
+  }else{
+    return rsp.Node.Value()
+  }
+  
 }
 
 /**
@@ -442,7 +456,7 @@ func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
 /**
  * Set a configuration value
  */
-func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
+func (e *EtcdConfig) set(key, method string, value interface{}) (*etcdResponse, error) {
   
   rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
@@ -458,7 +472,7 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
   }
   
   abs := e.endpoint.ResolveReference(rel)
-  req, err := http.NewRequest("PUT", abs.String(), strings.NewReader(vals.Encode()))
+  req, err := http.NewRequest(method, abs.String(), strings.NewReader(vals.Encode()))
   if err != nil {
     return nil, err
   }
@@ -501,7 +515,7 @@ func (e *EtcdConfig) set(key string, value interface{}) (*etcdResponse, error) {
  */
 func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   
-  rsp, err := e.set(key, value)
+  rsp, err := e.set(key, "PUT", value)
   if err != nil {
     return nil, err
   }else if rsp.Node == nil {
@@ -509,6 +523,22 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   }
   
   e.cache.SetAndWatch(key, rsp)
+  return rsp.Node.Value()
+}
+
+/**
+ * Add ordered values to an existing directory.
+ */
+func (e *EtcdConfig) Add(dir string, value interface{}) (interface{}, error) {
+  
+  rsp, err := e.set(dir, "POST", value)
+  if err != nil {
+    return nil, err
+  }else if rsp.Node == nil {
+    return nil, NoSuchKeyError
+  }
+  
+  // not cached or watched...
   return rsp.Node.Value()
 }
 
