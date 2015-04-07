@@ -105,12 +105,12 @@ type etcdObserver func(string, interface{})
 /**
  * Value encoder
  */
-type etcdValueEncoder func(interface{})([]byte, error)
+type EtcdValueEncoder func(interface{})([]byte, error)
 
 /**
  * Value decoder
  */
-type etcdValueDecoder func([]byte, interface{})(error)
+type EtcdValueDecoder func([]byte, interface{})(error)
 
 /**
  * Cache
@@ -370,8 +370,6 @@ func (c *etcdCache) Delete(key string) {
 type EtcdConfig struct {
   endpoint    *url.URL
   cache       *etcdCache
-  encoder     etcdValueEncoder
-  decoder     etcdValueDecoder
 }
 
 /**
