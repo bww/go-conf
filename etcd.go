@@ -406,31 +406,6 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*e
     return nil, err
   }
   
-  /*
-  data, err := ioutil.ReadAll(rsp.Body)
-  if err != nil {
-    return nil, err
-  }
-  
-  var etcrsp *etcdResponse
-  var etcerr *etcdError
-  switch rsp.StatusCode {
-    case http.StatusNotFound:
-      return nil, NoSuchKeyError
-    case http.StatusOK:
-      etcrsp = &etcdResponse{}
-      err = json.Unmarshal(data, etcrsp)
-    default:
-      etcerr = &etcdError{}
-      err = json.Unmarshal(data, etcerr)
-  }
-  if err != nil {
-    return nil, err
-  }
-  
-  return etcrsp, etcerr
-  */
-  
   return handleResponse(rsp)
 }
 
@@ -514,37 +489,6 @@ func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcd
     return nil, err
   }
   
-  /*
-  data, err := ioutil.ReadAll(rsp.Body)
-  if err != nil {
-    return nil, err
-  }
-  
-  var etcrsp *etcdResponse
-  var etcerr *etcdError
-  var result interface{}
-  
-  switch rsp.StatusCode {
-    case http.StatusOK, http.StatusCreated:
-      etcrsp = &etcdResponse{}
-      result = etcrsp
-    default:
-      etcerr = &etcdError{}
-      result = etcerr
-  }
-  
-  err = json.Unmarshal(data, result)
-  if err != nil {
-    return nil, err
-  }
-  
-  if etcerr != nil {
-    log.Printf("WHAT THE FUCK?!")
-  }
-  
-  return etcrsp, etcerr
-  */
-  
   return handleResponse(rsp)
 }
 
@@ -619,31 +563,6 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
   if err != nil {
     return nil, err
   }
-  
-  /*
-  data, err := ioutil.ReadAll(rsp.Body)
-  if err != nil {
-    return nil, err
-  }
-  
-  var etcrsp *etcdResponse
-  var etcerr *etcdError
-  switch rsp.StatusCode {
-    case http.StatusNotFound:
-      return nil, NoSuchKeyError
-    case http.StatusOK:
-      etcrsp = &etcdResponse{}
-      err = json.Unmarshal(data, etcrsp)
-    default:
-      etcerr = &etcdError{}
-      err = json.Unmarshal(data, etcerr)
-  }
-  if err != nil {
-    return nil, err
-  }
-  
-  return etcrsp, etcerr
-  */
   
   return handleResponse(rsp)
 }
