@@ -34,9 +34,10 @@ import (
   "errors"
 )
 
-var NoSuchKeyError  = errors.New("No such key")
-var ClientError     = errors.New("Client error")
-var ServiceError    = errors.New("Service error")
+var NoSuchKeyError    = errors.New("No such key")
+var KeyCollisionError = errors.New("Key already exists")
+var ClientError       = errors.New("Client error")
+var ServiceError      = errors.New("Service error")
 
 /**
  * A configuration

@@ -406,32 +406,32 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*e
     return nil, err
   }
   
+  /*
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
   }
   
-  var etc interface{}
+  var etcrsp *etcdResponse
+  var etcerr *etcdError
   switch rsp.StatusCode {
     case http.StatusNotFound:
       return nil, NoSuchKeyError
     case http.StatusOK:
-      etc = &etcdResponse{}
+      etcrsp = &etcdResponse{}
+      err = json.Unmarshal(data, etcrsp)
     default:
-      etc = &etcdError{}
+      etcerr = &etcdError{}
+      err = json.Unmarshal(data, etcerr)
   }
-  
-  err = json.Unmarshal(data, etc)
   if err != nil {
     return nil, err
   }
   
-  switch rsp.StatusCode {
-    case http.StatusOK:
-      return etc.(*etcdResponse), nil
-    default:
-      return nil, etc.(error)
-  }
+  return etcrsp, etcerr
+  */
+  
+  return handleResponse(rsp)
 }
 
 /**
@@ -514,30 +514,38 @@ func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcd
     return nil, err
   }
   
+  /*
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
   }
   
-  var etc interface{}
+  var etcrsp *etcdResponse
+  var etcerr *etcdError
+  var result interface{}
+  
   switch rsp.StatusCode {
     case http.StatusOK, http.StatusCreated:
-      etc = &etcdResponse{}
+      etcrsp = &etcdResponse{}
+      result = etcrsp
     default:
-      etc = &etcdError{}
+      etcerr = &etcdError{}
+      result = etcerr
   }
   
-  err = json.Unmarshal(data, etc)
+  err = json.Unmarshal(data, result)
   if err != nil {
     return nil, err
   }
   
-  switch rsp.StatusCode {
-    case http.StatusOK, http.StatusCreated:
-      return etc.(*etcdResponse), nil
-    default:
-      return nil, etc.(error)
+  if etcerr != nil {
+    log.Printf("WHAT THE FUCK?!")
   }
+  
+  return etcrsp, etcerr
+  */
+  
+  return handleResponse(rsp)
 }
 
 /**
@@ -612,32 +620,32 @@ func (e *EtcdConfig) delete(key string) (*etcdResponse, error) {
     return nil, err
   }
   
+  /*
   data, err := ioutil.ReadAll(rsp.Body)
   if err != nil {
     return nil, err
   }
   
-  var etc interface{}
+  var etcrsp *etcdResponse
+  var etcerr *etcdError
   switch rsp.StatusCode {
     case http.StatusNotFound:
       return nil, NoSuchKeyError
     case http.StatusOK:
-      etc = &etcdResponse{}
+      etcrsp = &etcdResponse{}
+      err = json.Unmarshal(data, etcrsp)
     default:
-      etc = &etcdError{}
+      etcerr = &etcdError{}
+      err = json.Unmarshal(data, etcerr)
   }
-  
-  err = json.Unmarshal(data, etc)
   if err != nil {
     return nil, err
   }
   
-  switch rsp.StatusCode {
-    case http.StatusOK:
-      return etc.(*etcdResponse), nil
-    default:
-      return nil, etc.(error)
-  }
+  return etcrsp, etcerr
+  */
+  
+  return handleResponse(rsp)
 }
 
 /**
@@ -671,5 +679,37 @@ func keyToEtcdPath(key string) string {
   return path
 }
 
-
+/**
+ * Read a response
+ */
+func handleResponse(rsp *http.Response) (*etcdResponse, error) {
+  
+  data, err := ioutil.ReadAll(rsp.Body)
+  if err != nil {
+    return nil, err
+  }
+  
+  switch rsp.StatusCode {
+    
+    case http.StatusOK, http.StatusCreated:
+      etcrsp := &etcdResponse{}
+      err = json.Unmarshal(data, etcrsp)
+      if err != nil {
+        return nil, err
+      }else{
+        return etcrsp, nil
+      }
+      
+    default:
+      etcerr := &etcdError{}
+      err = json.Unmarshal(data, etcerr)
+      if err != nil {
+        return nil, err
+      }else{
+        return nil, etcerr
+      }
+      
+  }
+  
+}
 
