@@ -505,6 +505,7 @@ func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcd
   req.Header.Add("Content-Type", CONTENT_TYPE_FORM_ENCODED)
   
   log.Printf("[%s] PUT %s", key, abs.String())
+  log.Printf("[%s]   > %s", key, vals.Encode())
   rsp, err := httpClient.Do(req)
   if rsp != nil {
     defer rsp.Body.Close() // always close Body
