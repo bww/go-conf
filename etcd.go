@@ -706,10 +706,16 @@ func handleResponse(rsp *http.Response) (*etcdResponse, error) {
       if err != nil {
         return nil, err
       }else{
-        return nil, etcerr
+        return nil, normalizeError(etcerr)
       }
       
   }
   
 }
 
+/**
+ * Attempt to normalize an error
+ */
+func normalizeError(err *etcdError) error {
+  return err
+}
