@@ -114,36 +114,3 @@ func TestEtcdBasics(t *testing.T) {
   <- w2
   
 }
-
-func TestEtcdDirs(t *testing.T) {
-  
-  e, err := NewEtcdConfig("http://localhost:4001/")
-  if err != nil {
-    t.Errorf("Could not fetch: %v", err)
-    return
-  }
-  
-  key := "test.a.b"
-  
-  v, err := e.Add(key, "The value (add)")
-  if err != nil {
-    t.Errorf("Could not add: %v", err)
-  }else{
-    t.Logf("%v -> %v", key, v)
-  }
-  
-  v, err = e.Get(key)
-  if err != nil {
-    t.Errorf("Could not get: %v", err)
-  }else{
-    t.Logf("%v -> %v", key, v)
-  }
-  
-  err = e.Mkdir(key +".dir")
-  if err != nil {
-    t.Errorf("Could not add: %v", err)
-  }else{
-    t.Logf("%v -> dir", key)
-  }
-  
-}

@@ -97,6 +97,9 @@ func (e etcdError) Error() string {
   return e.Message
 }
 
+/**
+ * Key observer
+ */
 type etcdObserver func(string, interface{})
 
 /**
@@ -505,37 +508,6 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   }
   
   e.cache.SetAndWatch(key, rsp)
-  return rsp.Node.Value()
-}
-
-/**
- * Create an empty directory
- */
-func (e *EtcdConfig) Mkdir(dir string) (error) {
-  
-  rsp, err := e.set(dir, "PUT", true, nil)
-  if err != nil {
-    return err
-  }else if rsp.Node == nil {
-    return NoSuchKeyError
-  }
-  
-  // not cached or watched...
-  return nil
-}
-
-/**
- * Add ordered values to an existing directory.
- */
-func (e *EtcdConfig) Add(dir string, value interface{}) (interface{}, error) {
-  
-  rsp, err := e.set(dir, "POST", false, value)
-  if err != nil {
-    return nil, err
-  }else if rsp.Node == nil {
-    return nil, NoSuchKeyError
-  }
-  
   return rsp.Node.Value()
 }
 
