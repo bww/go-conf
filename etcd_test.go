@@ -51,7 +51,7 @@ func TestEtcdBasics(t *testing.T) {
     <- time.After(time.Second)
     v, err := e.Set(key, "Some modified value")
     if err != nil {
-      t.Errorf("Could not set: %v", err)
+      panic(fmt.Errorf("Could not set: %v", err))
     }else{
       t.Logf("%v -> %v", key, v)
     }
@@ -98,7 +98,7 @@ func TestEtcdBasics(t *testing.T) {
     <- time.After(time.Second)
     v, err := e.Set(key, "Another modified value")
     if err != nil {
-      t.Errorf("Could not set: %v", err)
+      panic(fmt.Errorf("Could not set: %v", err))
     }else{
       t.Logf("%v -> %v", key, v)
     }
@@ -151,7 +151,7 @@ func TestEtcdDirs(t *testing.T) {
     k := fmt.Sprintf("%s.ZAM", key)
     v, err := e.Set(k, "Does this cause a directory to update? FOO!")
     if err != nil {
-      t.Errorf("Could not set: %v", err)
+      panic(fmt.Errorf("Could not set: %v", err))
     }else{
       t.Logf("%v -> %v", k, v)
     }
