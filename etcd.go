@@ -47,29 +47,24 @@ const CONTENT_TYPE_FORM_ENCODED = "application/x-www-form-urlencoded"
 
 var httpClient = &http.Client{}
 
+var ComparisonFailedError = fmt.Errorf("Comparison failed")
+
 /**
  * An etcd node
  */
 type etcdNode struct {
-  Created     uint64            `json:"createdIndex"`
-  Modified    uint64            `json:"modifiedIndex"`
+  Created     int64             `json:"createdIndex"`
+  Modified    int64             `json:"modifiedIndex"`
   Key         string            `json:"key"`
   Encoded     string            `json:"value"`
   Directory   bool              `json:"dir"`
   Subnodes    []*etcdNode       `json:"nodes"`
-  // value       interface{}
 }
 
 /**
  * Obtain the decoded value
  */
 func (n *etcdNode) Value() (interface{}, error) {
-  // if n.value == nil && n.Encoded != "" && n.Encoded != "null" {
-  //   if err := json.Unmarshal([]byte(n.Encoded), &n.value); err != nil {
-  //     return nil, err
-  //   }
-  // }
-  // return n.value, nil
   return n.Encoded, nil
 }
 
@@ -465,23 +460,26 @@ func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
 /**
  * Set a configuration value
  */
-func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcdResponse, error) {
+func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interface{}, prevIndex int64) (*etcdResponse, error) {
   
   rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
     return nil, err
   }
   
+  // add the value
   vals := url.Values{}
   if dir {
     vals.Set("dir", "true")
   }else{
-    switch v := value.(type) {
-      case string:
-        vals.Set("value", v)
-      default:
-        vals.Set("value", fmt.Sprintf("%v", v))
-    }
+    vals.Set("value", encodeValue(value))
+  }
+  
+  // if a previous node is provided, an atomic compare-and-swap update is performed
+  if prevIndex >= 0 {
+    vals.Set("prevIndex", encodeValue(prevIndex))
+  }else if prevValue != nil {
+    vals.Set("prevValue", encodeValue(prevValue))
   }
   
   abs := e.endpoint.ResolveReference(rel)
@@ -510,7 +508,24 @@ func (e *EtcdConfig) set(key, method string, dir bool, value interface{}) (*etcd
  */
 func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
   
-  rsp, err := e.set(key, "PUT", false, value)
+  rsp, err := e.set(key, "PUT", false, value, nil, -1)
+  if err != nil {
+    return nil, err
+  }else if rsp.Node == nil {
+    return nil, NoSuchKeyError
+  }
+  
+  e.cache.SetAndWatch(key, rsp)
+  return rsp.Node.Value()
+}
+
+/**
+ * Set a configuration value via an atomic compare-and-swap operation. This method will
+ * block until it either succeeds or fails.
+ */
+func (e *EtcdConfig) CompareAndSwap(key string, value, prev interface{}) (interface{}, error) {
+  
+  rsp, err := e.set(key, "PUT", false, value, prev, -1)
   if err != nil {
     return nil, err
   }else if rsp.Node == nil {
@@ -618,5 +633,21 @@ func handleResponse(rsp *http.Response) (*etcdResponse, error) {
  * Attempt to normalize an error
  */
 func normalizeError(err *etcdError) error {
-  return err
+  if err.Code == 101 {
+    return ComparisonFailedError
+  }else{
+    return err
+  }
+}
+
+/**
+ * Encode a value
+ */
+func encodeValue(value interface{}) string {
+  switch v := value.(type) {
+    case string:
+      return v
+    default:
+      return fmt.Sprintf("%v", v)
+  }
 }

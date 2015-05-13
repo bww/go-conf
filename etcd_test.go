@@ -73,6 +73,16 @@ func TestEtcdBasics(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
+  v, err = e.CompareAndSwap(key, "The value (CAS)", "It's not this")
+  if err != ComparisonFailedError {
+    t.Errorf("Comparison should fail: %v: %v", key, err)
+  }
+  
+  v, err = e.CompareAndSwap(key, "The value (CAS)", "The value (set)")
+  if err != nil {
+    t.Errorf("Comparison should succeed: %v: %v", key, err)
+  }
+  
   v, err = e.Get(key)
   if err != nil {
     t.Errorf("Could not fetch: %v", err)
