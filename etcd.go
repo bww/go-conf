@@ -183,7 +183,7 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
 }
 
 /**
- * Watch a configuration value for changes.
+ * Watch a configuration value for changes asynchronously.
  */
 func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
   e.cache.AddObserver(key, observer)
