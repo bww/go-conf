@@ -73,12 +73,25 @@ func TestEtcdBasics(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
-  v, err = e.CompareAndSwap(key, "The value (CAS)", "It's not this")
+  v, n, err := e.SetWithIndex(key, "The value (with index)")
+  if err != nil {
+    t.Errorf("Could not set: %v", err)
+  }else{
+    t.Logf("%v -> %v", key, v)
+  }
+  
+  
+  v, _, err = e.CompareAndSwap(key, "The value (CAS)", 0)
+  if err != InvalidIndexError {
+    t.Errorf("Index should be invalid: %v", 0)
+  }
+  
+  v, _, err = e.CompareAndSwap(key, "The value (CAS)", 1)
   if err != ComparisonFailedError {
     t.Errorf("Comparison should fail: %v: %v", key, err)
   }
   
-  v, err = e.CompareAndSwap(key, "The value (CAS)", "The value (set)")
+  v, _, err = e.CompareAndSwap(key, "The value (CAS)", n)
   if err != nil {
     t.Errorf("Comparison should succeed: %v: %v", key, err)
   }

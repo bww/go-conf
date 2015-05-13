@@ -42,6 +42,7 @@ import (
 
 const CONTENT_TYPE_FORM_ENCODED = "application/x-www-form-urlencoded"
 
+var InvalidIndexError     = fmt.Errorf("Invalid index")
 var ComparisonFailedError = fmt.Errorf("Comparison failed")
 
 var httpClient = &http.Client{}
@@ -153,33 +154,49 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*e
 }
 
 /**
- * Obtain a configuration value. This method will block until it either succeeds or fails.
+ * Obtain a configuration value and it's modification index, which can be used in atomic
+ * operations. This method will block until it either succeeds or fails.
  */
-func (e *EtcdConfig) Get(key string) (interface{}, error) {
+func (e *EtcdConfig) GetWithIndex(key string) (interface{}, int64, error) {
+  var res interface{}
   
   // always fetch, don't use the cache on get anymore
   rsp, err := e.get(key, false, false, nil)
   if err != nil {
-    return nil, err
+    return nil, -1, err
   }else if rsp.Node == nil {
-    return nil, NoSuchKeyError
+    return nil, -1, NoSuchKeyError
   }else{
     e.cache.Set(key, rsp)
   }
   
+  // obtain our result value
   if rsp.Node.Directory && rsp.Node.Subnodes != nil {
     values := make([]interface{}, len(rsp.Node.Subnodes))
     for i, n := range rsp.Node.Subnodes {
       values[i], err = n.Value()
       if err != nil {
-        return nil, err
+        return nil, -1, err
       }
     }
-    return values, nil
+    res = values
   }else{
-    return rsp.Node.Value()
+    value, err := rsp.Node.Value()
+    if err != nil {
+      return nil, -1, err
+    }
+    res = value
   }
   
+  return res, rsp.Node.Modified, nil
+}
+
+/**
+ * Obtain a configuration value. This method will block until it either succeeds or fails.
+ */
+func (e *EtcdConfig) Get(key string) (interface{}, error) {
+  v, _, err := e.GetWithIndex(key)
+  return v, err
 }
 
 /**
@@ -208,7 +225,7 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
   }
   
   // if a previous node is provided, an atomic compare-and-swap update is performed
-  if prevIndex >= 0 {
+  if prevIndex > 0 {
     vals.Set("prevIndex", encodeValue(prevIndex))
   }else if prevValue != nil {
     vals.Set("prevValue", encodeValue(prevValue))
@@ -236,36 +253,62 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
 }
 
 /**
- * Set a configuration value. This method will block until it either succeeds or fails.
+ * Set a configuration value. The canonical updated value and it's modification index,
+ * which can be used in atomic operations, are returned. This method will block until
+ * it either succeeds or fails.
  */
-func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
+func (e *EtcdConfig) SetWithIndex(key string, value interface{}) (interface{}, int64, error) {
   
   rsp, err := e.set(key, "PUT", false, value, nil, -1)
   if err != nil {
-    return nil, err
+    return nil, -1, err
   }else if rsp.Node == nil {
-    return nil, NoSuchKeyError
+    return nil, -1, NoSuchKeyError
   }
   
   e.cache.Set(key, rsp)
-  return rsp.Node.Value()
+  
+  res, err := rsp.Node.Value()
+  if err != nil {
+    return nil, -1, err
+  }
+  
+  return res, rsp.Node.Modified, nil
+}
+
+/**
+ * Set a configuration value. This method will block until it either succeeds or fails.
+ */
+func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
+  v, _, err := e.SetWithIndex(key, value)
+  return v, err
 }
 
 /**
  * Set a configuration value via an atomic compare-and-swap operation. This method will
  * block until it either succeeds or fails.
  */
-func (e *EtcdConfig) CompareAndSwap(key string, value, prev interface{}) (interface{}, error) {
+func (e *EtcdConfig) CompareAndSwap(key string, value interface{}, prev int64) (interface{}, int64, error) {
   
-  rsp, err := e.set(key, "PUT", false, value, prev, -1)
+  if prev < 1 {
+    return nil, -1, InvalidIndexError
+  }
+  
+  rsp, err := e.set(key, "PUT", false, value, nil, prev)
   if err != nil {
-    return nil, err
+    return nil, -1, err
   }else if rsp.Node == nil {
-    return nil, NoSuchKeyError
+    return nil, -1, NoSuchKeyError
   }
   
   e.cache.Set(key, rsp)
-  return rsp.Node.Value()
+  
+  res, err := rsp.Node.Value()
+  if err != nil {
+    return nil, -1, err
+  }
+  
+  return res, rsp.Node.Modified, nil
 }
 
 /**
