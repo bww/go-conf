@@ -289,7 +289,6 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
  * block until it either succeeds or fails.
  */
 func (e *EtcdConfig) CompareAndSwap(key string, value interface{}, prev int64) (interface{}, int64, error) {
-  
   if prev < 1 {
     return nil, -1, InvalidIndexError
   }
