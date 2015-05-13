@@ -80,7 +80,6 @@ func TestEtcdBasics(t *testing.T) {
     t.Logf("%v -> %v", key, v)
   }
   
-  
   v, _, err = e.CompareAndSwap(key, "The value (CAS)", 0)
   if err != InvalidIndexError {
     t.Errorf("Index should be invalid: %v", 0)
