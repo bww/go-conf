@@ -98,8 +98,8 @@ func TestEtcdBasics(t *testing.T) {
   }
   
   v, err = e.Get(key)
-  if err != nil && err != NoSuchKeyError {
-    t.Errorf("Could not get: %v: %v", key, err)
+  if err != NoSuchKeyError {
+    t.Errorf("Could not get: %v: %v (%T)", key, err, err)
   }else{
     t.Logf("%v -> %v", key, v)
   }
