@@ -141,7 +141,7 @@ func (e *etcdCacheEntry) watch(c *EtcdConfig) {
     e.RUnlock()
     
     recurse := rsp != nil && rsp.Node != nil && rsp.Node.Directory
-    rsp, err = c.get(key, true, recurse, rsp)
+    rsp, err = c.get(key, true, recurse, rsp, 0)
     if err == io.EOF || err == io.ErrUnexpectedEOF {
       errcount = 0
       continue

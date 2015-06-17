@@ -33,6 +33,7 @@ package conf
 import (
   "fmt"
   "log"
+  "time"
   "strings"
   "net/url"
   "net/http"
@@ -45,7 +46,7 @@ const CONTENT_TYPE_FORM_ENCODED = "application/x-www-form-urlencoded"
 var InvalidIndexError     = fmt.Errorf("Invalid index")
 var ComparisonFailedError = fmt.Errorf("Comparison failed")
 
-var httpClient = &http.Client{}
+var httpClient = &http.Client{Transport:http.DefaultTransport}
 
 /**
  * An etcd node
@@ -101,12 +102,13 @@ type etcdObserver func(string, interface{})
 type EtcdConfig struct {
   endpoint    *url.URL
   cache       *etcdCache
+  timeout     time.Duration
 }
 
 /**
  * Create an etcd-backed configuration
  */
-func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
+func NewEtcdConfig(endpoint string, timeout time.Duration) (*EtcdConfig, error) {
   
   u, err := url.Parse(endpoint)
   if err != nil {
@@ -116,6 +118,7 @@ func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
   etcd := &EtcdConfig{}
   etcd.endpoint = u
   etcd.cache = newEtcdCache(etcd)
+  etcd.timeout = timeout
   
   return etcd, nil
 }
@@ -123,7 +126,7 @@ func NewEtcdConfig(endpoint string) (*EtcdConfig, error) {
 /**
  * Obtain a configuration node
  */
-func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*etcdResponse, error) {
+func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse, timeout time.Duration) (*etcdResponse, error) {
   var u string
   
   path := keyToEtcdPath(key)
@@ -142,10 +145,20 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse) (*e
   
   abs := e.endpoint.ResolveReference(rel)
   log.Printf("[%s] GET %s", key, abs.String())
-  rsp, err := httpClient.Get(abs.String())
-  if rsp != nil {
-    defer rsp.Body.Close() // always close Body
+  
+  var t time.Duration
+  if timeout > 0 {
+    t = timeout
+  }else{
+    t = e.timeout
   }
+  
+  req, err := http.NewRequest("GET", abs.String(), nil)
+  if err != nil {
+    return nil, err
+  }
+  
+  rsp, err := performRequest(req, t)
   if err != nil {
     return nil, err
   }
@@ -161,7 +174,7 @@ func (e *EtcdConfig) GetWithIndex(key string) (interface{}, int64, error) {
   var res interface{}
   
   // always fetch, don't use the cache on get anymore
-  rsp, err := e.get(key, false, false, nil)
+  rsp, err := e.get(key, false, false, nil, 0)
   if err != nil {
     return nil, -1, err
   }else if rsp.Node == nil {
@@ -209,7 +222,7 @@ func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
 /**
  * Set a configuration value
  */
-func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interface{}, prevIndex int64) (*etcdResponse, error) {
+func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interface{}, prevIndex int64, timeout time.Duration) (*etcdResponse, error) {
   
   rel, err := url.Parse(fmt.Sprintf("/v2/keys/%s", keyToEtcdPath(key)))
   if err != nil {
@@ -243,10 +256,15 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
   
   log.Printf("[%s] PUT %s", key, abs.String())
   log.Printf("[%s]   > %s", key, vals.Encode())
-  rsp, err := httpClient.Do(req)
-  if rsp != nil {
-    defer rsp.Body.Close() // always close Body
+  
+  var t time.Duration
+  if timeout > 0 {
+    t = timeout
+  }else{
+    t = e.timeout
   }
+  
+  rsp, err := performRequest(req, t)
   if err != nil {
     return nil, err
   }
@@ -261,7 +279,7 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
  */
 func (e *EtcdConfig) SetWithIndex(key string, value interface{}) (interface{}, int64, error) {
   
-  rsp, err := e.set(key, "PUT", false, value, nil, -1)
+  rsp, err := e.set(key, "PUT", false, value, nil, -1, 0)
   if err != nil {
     return nil, -1, err
   }else if rsp.Node == nil {
@@ -300,7 +318,7 @@ func (e *EtcdConfig) CompareAndSwap(key string, value interface{}, prev int64) (
     return nil, -1, InvalidIndexError
   }
   
-  rsp, err := e.set(key, "PUT", false, value, nil, prev)
+  rsp, err := e.set(key, "PUT", false, value, nil, prev, 0)
   if err != nil {
     return nil, -1, err
   }else if rsp.Node == nil {
@@ -374,6 +392,40 @@ func keyToEtcdPath(key string) string {
   }
   
   return path
+}
+
+/**
+ * Perform a request
+ */
+func performRequest(req *http.Request, timeout time.Duration) (*http.Response, error) {
+  var rsp *http.Response
+  var err error
+  
+  crsp := make(chan *http.Response)
+  cerr := make(chan error)
+  
+  go func(){
+    rsp, err := httpClient.Do(req)
+    if rsp != nil {
+      defer rsp.Body.Close() // always close Body
+    }
+    if err != nil {
+      cerr <- err
+    }else{
+      crsp <- rsp
+    }
+  }()
+  
+  select {
+    case rsp = <- crsp:
+      return rsp, nil
+    case err = <- cerr:
+      return nil, err
+    case <- time.After(timeout):
+      httpClient.Transport.(*http.Transport).CancelRequest(req)
+      return nil, TimeoutError
+  }
+  
 }
 
 /**

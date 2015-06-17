@@ -36,6 +36,7 @@ import (
 
 var NoSuchKeyError    = errors.New("No such key")
 var KeyCollisionError = errors.New("Key already exists")
+var TimeoutError      = errors.New("Request timed out")
 var ClientError       = errors.New("Client error")
 var ServiceError      = errors.New("Service error")
 
