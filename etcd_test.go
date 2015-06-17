@@ -39,7 +39,7 @@ import (
 
 func TestEtcdBasics(t *testing.T) {
   
-  e, err := NewEtcdConfig("http://localhost:4001/")
+  e, err := NewEtcdConfig("http://localhost:4001/", time.Second)
   if err != nil {
     t.Errorf("Could not fetch: %v", err)
     return

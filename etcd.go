@@ -147,7 +147,9 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse, tim
   log.Printf("[%s] GET %s", key, abs.String())
   
   var t time.Duration
-  if timeout > 0 {
+  if wait {
+    t = time.Minute
+  }else if timeout > 0 {
     t = timeout
   }else{
     t = e.timeout
@@ -159,6 +161,9 @@ func (e *EtcdConfig) get(key string, wait, recurse bool, prev *etcdResponse, tim
   }
   
   rsp, err := performRequest(req, t)
+  if rsp != nil {
+    defer rsp.Body.Close()
+  }
   if err != nil {
     return nil, err
   }
@@ -265,6 +270,9 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
   }
   
   rsp, err := performRequest(req, t)
+  if rsp != nil {
+    defer rsp.Body.Close()
+  }
   if err != nil {
     return nil, err
   }
@@ -406,10 +414,8 @@ func performRequest(req *http.Request, timeout time.Duration) (*http.Response, e
   
   go func(){
     rsp, err := httpClient.Do(req)
-    if rsp != nil {
-      defer rsp.Body.Close() // always close Body
-    }
     if err != nil {
+      if rsp != nil { rsp.Body.Close() }
       cerr <- err
     }else{
       crsp <- rsp
@@ -425,7 +431,6 @@ func performRequest(req *http.Request, timeout time.Duration) (*http.Response, e
       httpClient.Transport.(*http.Transport).CancelRequest(req)
       return nil, TimeoutError
   }
-  
 }
 
 /**
