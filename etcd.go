@@ -227,6 +227,8 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
   // if a previous node is provided, an atomic compare-and-swap update is performed
   if prevIndex > 0 {
     vals.Set("prevIndex", encodeValue(prevIndex))
+  }else if prevIndex < 0 {
+    vals.Set("prevExist", "false")
   }else if prevValue != nil {
     vals.Set("prevValue", encodeValue(prevValue))
   }
@@ -287,9 +289,14 @@ func (e *EtcdConfig) Set(key string, value interface{}) (interface{}, error) {
 /**
  * Set a configuration value via an atomic compare-and-swap operation. This method will
  * block until it either succeeds or fails.
+ * 
+ * The prev value is the raft index of the previous state of the key. If this value is positive
+ * the service ensures that the previous state is current and, if so, performs the update. If
+ * the value is negative the service ensures that there is no previous state (i.e., the key
+ * has not yet been created). A value of zero is an error.
  */
 func (e *EtcdConfig) CompareAndSwap(key string, value interface{}, prev int64) (interface{}, int64, error) {
-  if prev < 1 {
+  if prev == 0 {
     return nil, -1, InvalidIndexError
   }
   
