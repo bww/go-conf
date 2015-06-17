@@ -41,7 +41,7 @@ func TestEtcdBasics(t *testing.T) {
   
   e, err := NewEtcdConfig("http://localhost:4001/", time.Second * 3)
   if err != nil {
-    t.Errorf("Could not fetch: %v", err)
+    t.Errorf("Could create config: %v", err)
     return
   }
   
@@ -134,5 +134,22 @@ func TestEtcdBasics(t *testing.T) {
   })
   
   <- w2
+  
+}
+
+func TestEtcdTimeout(t *testing.T) {
+  
+  key := "test.a.b.c"
+  
+  e, err := NewEtcdConfig("http://localhost:4001/", time.Microsecond)
+  if err != nil {
+    t.Errorf("Could create config: %v", err)
+    return
+  }
+  
+  _, err = e.Get(key)
+  if err != TimeoutError {
+    t.Errorf("Should have timed out")
+  }
   
 }
