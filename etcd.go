@@ -287,7 +287,7 @@ func (e *EtcdConfig) set(key, method string, dir bool, value, prevValue interfac
  */
 func (e *EtcdConfig) SetWithIndex(key string, value interface{}) (interface{}, int64, error) {
   
-  rsp, err := e.set(key, "PUT", false, value, nil, -1, 0)
+  rsp, err := e.set(key, "PUT", false, value, nil, 0, 0)
   if err != nil {
     return nil, -1, err
   }else if rsp.Node == nil {
