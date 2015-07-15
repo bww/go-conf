@@ -221,6 +221,7 @@ func (e *EtcdConfig) Get(key string) (interface{}, error) {
  * Watch a configuration value for changes asynchronously.
  */
 func (e *EtcdConfig) Watch(key string, observer etcdObserver) {
+  // TODO: why is this done in such a roundabout way?
   e.cache.AddObserver(key, observer)
 }
 
